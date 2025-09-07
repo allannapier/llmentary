@@ -1,126 +1,207 @@
 # llmentary
 
-llmentary is a privacy-first, automatic drift detection and monitoring tool for LLM-powered applications. It provides zero-effort integration, auto-instrumentation, and intelligent analytics to ensure your LLM responses remain consistent and reliable in production.
+Privacy-first LLM monitoring and regression testing toolkit. Detect model drift, collect training data, and ensure consistent LLM behavior with minimal code changes.
 
-## Core Benefits Over Traditional Testing
+## 🎯 What is llmentary?
 
-- **Automatic Test Generation:** Learns from real usage patterns, no manual test writing required.
-- **Zero-Effort Integration:** Just 3 lines of code to add monitoring:
-  ```python
-  from llmentary import monitor
-  from llmentary.interceptors import AutoInstrument
-  AutoInstrument.auto_patch_all()
-  ```
-- **Privacy-First Design:** Uses SHA-256 hashing by default, so sensitive data is never stored.
-- **Intelligent Drift Detection:** Alerts when the same question gets different answers.
+llmentary helps you:
+- **Monitor LLM responses** with privacy-first hash-based drift detection
+- **Build regression tests** by collecting approved question-answer pairs
+- **Detect model drift** using advanced semantic similarity analysis
+- **Maintain consistency** across model updates and deployments
 
-## How It Works
+## 🚀 Quick Start
 
-- Intercepts all LLM calls automatically (OpenAI, Anthropic, LangChain, etc.)
-- Hashes inputs and outputs for privacy-preserving comparison
-- Stores hashes and metadata in a local database
-- Compares new responses against historical responses for the same input
-- Alerts when drift is detected beyond configured thresholds
-
-## Real-World Example
-
-```python
-# Your existing code doesn't change at all!
-response = client.chat.completions.create(
-    model="gpt-4",
-    messages=[{"role": "user", "content": "What is our refund policy?"}]
-)
-# Behind the scenes, the monitor:
-# 1. Hashes "What is our refund policy?"
-# 2. Checks if this question was asked before
-# 3. Compares the new response with previous responses
-# 4. Alerts if the answer has changed significantly
-```
-
-## Key Features
-
-### 1. Auto-Instrumentation
-- Automatically patches OpenAI, Anthropic, and LangChain libraries
-- No need to modify existing code
-- Works with async and sync functions
-
-### 2. Smart Drift Detection
-- **Hash-based:** Detects exact changes (no external dependencies)
-- **Semantic:** Uses embeddings for similarity comparison (optional)
-- Configurable thresholds for different use cases
-
-### 3. Comprehensive Analytics
+### 1. Installation
 
 ```bash
-llmentary report        # See drift patterns
-llmentary consistency   # Check consistency scores
-llmentary inspect --input-hash abc123  # Deep dive into specific inputs
+pip install -r requirements.txt
 ```
 
-### 4. Flexible Alerting
-- Console warnings (default)
-- Slack notifications
-- Email alerts
-- Custom webhooks
-- All configurable based on drift severity
+### 2. Basic Integration (3 lines of code)
 
-### 5. Production-Ready Storage
-- SQLite for easy start (no setup required)
-- Extensible to Redis, PostgreSQL, MongoDB
-- Batch writes for performance
-- Automatic buffer flushing
-
-## Real-World Use Cases
-- **Model Updates:** Detect when model changes affect your app
-- **Prompt Changes:** Ensure prompt modifications don't break functionality
-- **Compliance:** Prove consistent responses for audit trails
-- **Cost Optimization:** Identify when cheaper models give identical results
-- **Quality Assurance:** Catch degradation before users notice
-
-## Advanced Features
-
-### Pattern Analysis
-- Model: Which models are most consistent?
-- Time: When drift occur most?
-- Function: Which parts of your code are affected?
-
-### Performance Optimization
-- ~1-5ms overhead per call
-- Async operations don't block your app
-- Batched database writes
-- Can be disabled/enabled at runtime
-
-### Privacy Controls
 ```python
-monitor.configure(
-    store_raw_text=False,  # Only hashes (default)
-    # or
-    store_raw_text=True,   # Store actual text for debugging
+from llmentary import monitor, AutoInstrument
+
+# Enable monitoring
+AutoInstrument.auto_patch_all()
+monitor.configure(store_raw_text=False)  # Privacy-first
+
+# Your LLM calls are now automatically monitored
+# Drift detection happens transparently
+```
+
+### 3. Training Mode - Collect Approved Responses
+
+```python
+from llmentary import training_mode, capture_interaction
+
+# Interactive training
+with training_mode():
+    response = your_llm_call("What is Python?")
+    # You'll be prompted: "Save this Q&A pair? (y/n)"
+
+# Or manual capture
+response = your_llm_call("What is Python?") 
+capture_interaction(
+    question="What is Python?",
+    answer=response,
+    model="gpt-4",
+    provider="openai"
 )
 ```
 
-## Migration Path
-- Deploy alongside existing tests to build baseline
-- Use drift detection to identify gaps in test coverage
-- Generate test cases from real-world drift events
-- Feed insights back into traditional test suites
+### 4. Regression Testing
 
-## Comparison with Traditional Approach
+```python
+from llmentary import get_trainer_tester
 
-| Traditional Testing      | Auto-Instrumentation         |
-|-------------------------|------------------------------|
-| Manual test case creation| Automatic learning from usage|
-| Synthetic test data      | Real production inputs       |
-| Requires maintenance     | Self-maintaining             |
-| Run in CI/CD only        | Continuous monitoring        |
-| Miss edge cases          | Catches all actual usage     |
-| Hours to set up          | Minutes to deploy            |
+trainer = get_trainer_tester()
+examples = trainer.storage.get_examples()
 
-## Why llmentary?
-- Learns from reality rather than assumptions
-- Requires no maintenance as it self-updates
-- Catches issues immediately in production
-- Preserves privacy through hashing
-- Scales automatically with usage
+for example in examples:
+    current_response = your_llm_call(example.question)
+    result = trainer.test_example(example, current_response)
+    
+    if not result.matches:
+        print(f"❌ DRIFT: {example.question}")
+        print(f"Response changed from approved baseline")
+```
 
-llmentary creates a "fingerprint" of your LLM's behavior and alerts you whenever that fingerprint changes unexpectedly. It's like having automated regression tests that write themselves based on actual usage!
+## 📋 Complete Example
+
+See `gemini_chat_demo.py` for a complete working example:
+
+```bash
+# Normal chat with monitoring
+python gemini_chat_demo.py
+
+# Training mode - save approved responses
+python gemini_chat_demo.py --training
+
+# Test mode - validate all saved responses
+python gemini_chat_demo.py --test
+```
+
+## 🔐 Privacy & Security
+
+- **Questions**: Stored in plaintext (needed for regression testing)
+- **Answers**: Salted SHA-256 hashes only (privacy-preserving comparison)
+- **Local Storage**: SQLite database in your project directory
+- **User Control**: Nothing saved without explicit approval
+
+## 🎛️ Configuration
+
+```python
+from llmentary import monitor
+
+# Basic configuration
+monitor.configure(
+    store_raw_text=False,              # Privacy-first mode
+    advanced_drift_detection=True,     # Enable semantic similarity
+    drift_threshold=0.85               # Similarity threshold
+)
+
+# Advanced drift detection
+from llmentary import DriftDetectionConfig, DriftType
+
+config = DriftDetectionConfig(
+    detection_mode=DriftType.HYBRID,   # EXACT, SEMANTIC, or HYBRID
+    semantic_threshold=0.85,           # Semantic similarity threshold
+    embedding_model="all-MiniLM-L6-v2" # Sentence transformer model
+)
+```
+
+## 📊 Key Features
+
+### 1. **Privacy-First Monitoring**
+- Hash-based drift detection
+- No sensitive data stored
+- Local database only
+
+### 2. **Training/Testing Workflow**
+- Interactive approval of Q&A pairs
+- Regression testing against baselines
+- User-controlled data collection
+
+### 3. **Advanced Drift Detection**
+- Semantic similarity analysis
+- Configurable thresholds
+- Multiple detection modes (exact, semantic, hybrid)
+
+### 4. **Easy Integration**
+- Context managers and decorators
+- Auto-instrumentation for major LLM providers
+- <3 lines of code to get started
+
+## 🛠️ Advanced Usage
+
+### Context Manager Pattern
+```python
+from llmentary import training_mode
+
+with training_mode(interactive=True):
+    for question in questions:
+        response = llm.ask(question)
+        # Auto-prompted to save approved responses
+```
+
+### Decorator Pattern
+```python
+from llmentary import trainable
+
+@trainable
+def ask_support_question(question):
+    return llm.ask(question)
+```
+
+### Integration with Web Frameworks
+
+#### FastAPI
+```python
+from fastapi import FastAPI
+from llmentary import capture_interaction
+
+app = FastAPI()
+
+@app.post("/ask")
+async def ask_question(question: str):
+    response = await llm.ask(question)
+    capture_interaction(question, response, "gpt-4", "openai")
+    return {"response": response}
+```
+
+## 📈 Workflow
+
+1. **Monitor** - Add 3 lines to enable automatic drift detection
+2. **Train** - Run your app with training mode to collect approved Q&A pairs  
+3. **Test** - Validate current responses against saved baselines
+4. **Iterate** - Refine your training data and catch regressions early
+
+## 🧪 Testing Your Setup
+
+```bash
+# Test basic functionality
+python -c "from llmentary import monitor; print('✅ llmentary imported successfully')"
+
+# Run the demo
+python gemini_chat_demo.py --help
+```
+
+## 📝 Requirements
+
+- **Core**: Python 3.8+, numpy
+- **Optional**: sentence-transformers (semantic analysis), click (better prompts)
+- **LLM APIs**: Install as needed (openai, anthropic, google-generativeai)
+
+## 🤝 Integration Examples
+
+The toolkit works with any LLM provider:
+- ✅ OpenAI GPT models
+- ✅ Anthropic Claude
+- ✅ Google Gemini
+- ✅ Any custom LLM integration
+
+---
+
+**Get started in under 5 minutes. Privacy-first. User-controlled. Regression testing made simple.**
