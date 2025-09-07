@@ -24,6 +24,20 @@ from .llmentary import (
     instrument
 )
 
+# Advanced drift detection (optional import)
+try:
+    from .drift_detector import (
+        AdvancedDriftDetector,
+        DriftDetectionConfig,
+        DriftSeverity,
+        DriftType,
+        DriftDetectionResult,
+        get_detector
+    )
+    ADVANCED_DRIFT_AVAILABLE = True
+except ImportError:
+    ADVANCED_DRIFT_AVAILABLE = False
+
 # Version info
 __version__ = "0.2.0"
 __author__ = "llmentary team"

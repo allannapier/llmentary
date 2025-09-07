@@ -46,19 +46,73 @@ class Monitor:
             'store_raw_text': False,
             'drift_threshold': 0.85,
             'storage_backend': 'sqlite',
-            'db_path': 'llmentary.db'
+            'db_path': 'llmentary.db',
+            'advanced_drift_detection': False,
+            'drift_detection_mode': 'hybrid',  # exact, semantic, hybrid
+            'semantic_threshold': 0.85,
+            'exact_threshold': 1.0,
+            'hybrid_threshold': 0.80
         }
         self.storage = SQLiteStorage(self.config['db_path'])
+        self._advanced_detector = None
         self._initialize_db()
     
     def configure(self, **kwargs):
         """Configure the monitor"""
         self.config.update(kwargs)
+        
+        # Reset advanced detector if drift detection settings changed
+        drift_settings = ['advanced_drift_detection', 'drift_detection_mode', 
+                         'semantic_threshold', 'exact_threshold', 'hybrid_threshold']
+        if any(key in kwargs for key in drift_settings):
+            self._advanced_detector = None
+            
         logger.info("Monitor configured", config=self.config)
     
     def _initialize_db(self):
         """Initialize the database"""
         self.storage.initialize()
+    
+    def _get_advanced_detector(self):
+        """Get or create the advanced drift detector"""
+        if not self.config.get('advanced_drift_detection', False):
+            return None
+            
+        if self._advanced_detector is None:
+            try:
+                from .drift_detector import AdvancedDriftDetector, DriftDetectionConfig, DriftType
+                
+                # Map string to enum
+                mode_map = {
+                    'exact': DriftType.EXACT,
+                    'semantic': DriftType.SEMANTIC,
+                    'hybrid': DriftType.HYBRID
+                }
+                
+                detection_mode = mode_map.get(
+                    self.config.get('drift_detection_mode', 'hybrid'),
+                    DriftType.HYBRID
+                )
+                
+                config = DriftDetectionConfig(
+                    exact_threshold=self.config.get('exact_threshold', 1.0),
+                    semantic_threshold=self.config.get('semantic_threshold', 0.85),
+                    hybrid_threshold=self.config.get('hybrid_threshold', 0.80),
+                    detection_mode=detection_mode
+                )
+                
+                self._advanced_detector = AdvancedDriftDetector(config)
+                logger.info("Advanced drift detector initialized", 
+                           mode=detection_mode.value)
+                           
+            except ImportError as e:
+                logger.warning(f"Advanced drift detection not available: {e}")
+                return None
+            except Exception as e:
+                logger.error(f"Failed to initialize advanced drift detector: {e}")
+                return None
+                
+        return self._advanced_detector
     
     def record_call(self, input_text: str, output_text: str, 
                    model: str = "unknown", provider: str = "unknown", 
@@ -110,11 +164,38 @@ class Monitor:
         try:
             previous_calls = self.storage.get_calls_by_input_hash(call.input_hash)
             
+            # Use advanced drift detection if enabled
+            advanced_detector = self._get_advanced_detector()
+            
+            if advanced_detector and len(previous_calls) > 1:
+                # Remove current call from previous calls for comparison
+                previous_for_comparison = [c for c in previous_calls if c.timestamp != call.timestamp]
+                
+                if previous_for_comparison:
+                    result = advanced_detector.detect_drift(call, previous_for_comparison)
+                    
+                    if result.has_drift:
+                        logger.warning("Advanced drift detected!", 
+                                     input_hash=call.input_hash[:8],
+                                     severity=result.severity.value,
+                                     similarity_score=result.similarity_score,
+                                     confidence=result.confidence,
+                                     detection_mode=result.drift_type.value,
+                                     model=call.model,
+                                     provider=call.provider)
+                    else:
+                        logger.info("No drift detected", 
+                                   input_hash=call.input_hash[:8],
+                                   similarity_score=result.similarity_score,
+                                   detection_mode=result.drift_type.value)
+                return
+            
+            # Fallback to basic hash-based drift detection
             if len(previous_calls) > 1:
                 # Check if output is different from previous calls
                 previous_outputs = [c.output_hash for c in previous_calls[:-1]]
                 if call.output_hash not in previous_outputs:
-                    logger.warning("Drift detected!", 
+                    logger.warning("Basic drift detected!", 
                                  input_hash=call.input_hash[:8],
                                  new_output_hash=call.output_hash[:8],
                                  previous_outputs=[h[:8] for h in previous_outputs],
